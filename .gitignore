@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+
+# Streamlit
+.streamlit/
+
+# VSCode, Mac, etc
+.vscode/
+.DS_Store
+
