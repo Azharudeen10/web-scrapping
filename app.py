@@ -5,6 +5,10 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import time
+import random
+
+LIST_URL = "https://rera.odisha.gov.in/projects/project-list"
+
 
 def get_projects_with_details():
     options = webdriver.ChromeOptions()
@@ -20,7 +24,7 @@ def get_projects_with_details():
     )
 
     try:
-        driver.get("https://rera.odisha.gov.in/projects/project-list")
+        driver.get(LIST_URL)
         time.sleep(5)  # allow page to fully load
 
         projects = []
