@@ -5,10 +5,8 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import time
-import random
 
 LIST_URL = "https://rera.odisha.gov.in/projects/project-list"
-
 
 def get_projects_with_details():
     options = webdriver.ChromeOptions()
@@ -25,79 +23,90 @@ def get_projects_with_details():
 
     try:
         driver.get(LIST_URL)
-        time.sleep(5)  # allow page to fully load
+        time.sleep(5)  # let the list page fully load
 
         projects = []
-        # we'll process indexes 0–5
+        # Loop through first 6 projects
         for idx in range(6):
             try:
-                # re-find the buttons each time to avoid stale references
                 buttons = driver.find_elements(
                     By.XPATH,
                     '//a[contains(@class,"btn-primary") and contains(.,"View Details")]'
                 )
                 btn = buttons[idx]
-
-                # scroll & click via JS
                 driver.execute_script("arguments[0].scrollIntoView(true);", btn)
                 time.sleep(0.5)
                 driver.execute_script("arguments[0].click();", btn)
-                time.sleep(4)  # wait for details page to load
+                time.sleep(4)  # wait for details
 
                 soup = BeautifulSoup(driver.page_source, 'html.parser')
 
                 # --- Project Overview ---
-                rera_no = proj_name = None
+                rera_no = proj_name = "—"
                 for div in soup.select('div.details-project.ms-3'):
                     lbl = div.find('label', class_='label-control', string=True)
                     val = div.find('strong')
-                    if not lbl or not val:
+                    if not lbl:
                         continue
-                    txt = lbl.string.strip()
-                    if txt == "RERA Regd. No.":
-                        rera_no = val.get_text(strip=True)
-                    elif txt == "Project Name":
-                        proj_name = val.get_text(strip=True)
+                    label_text = lbl.string.strip()
+                    value = val.get_text(strip=True) if val else "—"
+                    if label_text == "RERA Regd. No.":
+                        rera_no = value
+                    elif label_text == "Project Name":
+                        proj_name = value
 
-                # --- Promoter Details ---
-                # click the “Promoter Details” tab by its link text
-                prom_tab = driver.find_element(
-                    By.XPATH,
-                    "//a[normalize-space(.)='Promoter Details']"
-                )
-                driver.execute_script("arguments[0].click();", prom_tab)
-                time.sleep(2)  # wait for tab content
+                # --- Promoter Details Tab ---
+                try:
+                    prom_tab = driver.find_element(
+                        By.XPATH, "//a[normalize-space(.)='Promoter Details']"
+                    )
+                    driver.execute_script("arguments[0].click();", prom_tab)
+                    time.sleep(2)
+                    soup2 = BeautifulSoup(driver.page_source, 'html.parser')
+                except:
+                    soup2 = soup
 
-                soup2 = BeautifulSoup(driver.page_source, 'html.parser')
                 def scrape_field(label_text):
                     lbl = soup2.find('label', class_='label-control', string=label_text)
                     if lbl:
+                        # 1) try <strong>
                         strong = lbl.find_next_sibling('strong')
-                        return strong.get_text(strip=True) if strong else None
-                    return None
+                        if strong and strong.get_text(strip=True):
+                            return strong.get_text(strip=True)
+                        # 2) fallback to any sibling with text
+                        sib = lbl.find_next_sibling()
+                        if sib and sib.get_text(strip=True):
+                            return sib.get_text(strip=True)
+                    return "—"
 
-                company_name = scrape_field("Company Name")
-                office_addr   = scrape_field("Registered Office Address")
-                gst_no        = scrape_field("GST No.")
+                # Try company-based first
+                promoter_name    = scrape_field("Company Name")
+                promoter_address = scrape_field("Registered Office Address")
+
+                # If missing, fallback to proprietor-based
+                if promoter_name == "—":
+                    promoter_name = scrape_field("Propietory Name")
+                if promoter_address == "—":
+                    promoter_address = scrape_field("Permanent Address")
+
+                gst_no = scrape_field("GST No.")
 
                 projects.append({
-                    "Rera Regd. No.":    rera_no,
                     "Project Name":      proj_name,
-                    "Company Name":      company_name,
-                    "Registered Office": office_addr,
+                    "RERA Regd. No.":    rera_no,
+                    "Promoter Name":     promoter_name,
+                    "Promoter Address":  promoter_address,
                     "GST No.":           gst_no
                 })
 
-                # go back and ensure list reload
                 driver.back()
-                time.sleep(5)  # give list page time to re-render
+                time.sleep(4)
 
             except Exception as e:
-                projects.append({"Error": f"Failed scraping project #{idx+1}: {e}"})
-                # try to get back to list page if not already
+                projects.append({"Error": f"Project #{idx+1} scrape failed: {e}"})
                 try:
                     driver.back()
-                    time.sleep(3)
+                    time.sleep(2)
                 except:
                     pass
 
@@ -121,14 +130,14 @@ if st.button("🔍 Fetch Project Details"):
         st.session_state.project_details = get_projects_with_details()
 
 if st.session_state.project_details:
-    st.subheader("First 6 Registered Projects")
+    st.subheader("Projects Registered")
     for idx, proj in enumerate(st.session_state.project_details, start=1):
         if "Error" in proj:
             st.error(f"{idx}. {proj['Error']}")
         else:
-            st.markdown(f"**{idx}. {proj['Project Name'] or '–'}**")
-            st.write(f"- **Rera Regd. No.:** {proj.get('Rera Regd. No.', '–')}")
-            st.write(f"- **Company Name:** {proj.get('Company Name', '–')}")
-            st.write(f"- **Registered Office:** {proj.get('Registered Office', '–')}")
-            st.write(f"- **GST No.:** {proj.get('GST No.', '–')}")
+            st.markdown(f"**{idx}. {proj['Project Name']}**")
+            st.write(f"- **RERA Regd. No.:** {proj['RERA Regd. No.']}")
+            st.write(f"- **Promoter Name:** {proj['Promoter Name']}")
+            st.write(f"- **Promoter Address:** {proj['Promoter Address']}")
+            st.write(f"- **GST No.:** {proj['GST No.']}")
             st.write("---")
