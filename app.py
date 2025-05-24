@@ -5,10 +5,11 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import time
+import pandas as pd
 
 LIST_URL = "https://rera.odisha.gov.in/projects/project-list"
 
-def get_projects_with_details():
+def get_projects_with_details(progress_callback=None):
     options = webdriver.ChromeOptions()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
@@ -26,8 +27,10 @@ def get_projects_with_details():
         time.sleep(5)  # let the list page fully load
 
         projects = []
-        # Loop through first 6 projects
-        for idx in range(6):
+        total = 6
+        if progress_callback:
+            progress_callback(0)
+        for idx in range(total):
             try:
                 buttons = driver.find_elements(
                     By.XPATH,
@@ -41,7 +44,6 @@ def get_projects_with_details():
 
                 soup = BeautifulSoup(driver.page_source, 'html.parser')
 
-                # --- Project Overview ---
                 rera_no = proj_name = "—"
                 for div in soup.select('div.details-project.ms-3'):
                     lbl = div.find('label', class_='label-control', string=True)
@@ -55,7 +57,6 @@ def get_projects_with_details():
                     elif label_text == "Project Name":
                         proj_name = value
 
-                # --- Promoter Details Tab ---
                 try:
                     prom_tab = driver.find_element(
                         By.XPATH, "//a[normalize-space(.)='Promoter Details']"
@@ -69,36 +70,29 @@ def get_projects_with_details():
                 def scrape_field(label_text):
                     lbl = soup2.find('label', class_='label-control', string=label_text)
                     if lbl:
-                        # 1) try <strong>
                         strong = lbl.find_next_sibling('strong')
                         if strong and strong.get_text(strip=True):
                             return strong.get_text(strip=True)
-                        # 2) fallback to any sibling with text
                         sib = lbl.find_next_sibling()
                         if sib and sib.get_text(strip=True):
                             return sib.get_text(strip=True)
                     return "—"
 
-                # Try company-based first
-                promoter_name    = scrape_field("Company Name")
+                promoter_name = scrape_field("Company Name")
                 promoter_address = scrape_field("Registered Office Address")
-
-                # If missing, fallback to proprietor-based
                 if promoter_name == "—":
                     promoter_name = scrape_field("Propietory Name")
                 if promoter_address == "—":
                     promoter_address = scrape_field("Permanent Address")
-
                 gst_no = scrape_field("GST No.")
 
                 projects.append({
-                    "Project Name":      proj_name,
-                    "RERA Regd. No.":    rera_no,
-                    "Promoter Name":     promoter_name,
-                    "Promoter Address":  promoter_address,
-                    "GST No.":           gst_no
+                    "Project Name": proj_name,
+                    "RERA Regd. No.": rera_no,
+                    "Promoter Name": promoter_name,
+                    "Promoter Address": promoter_address,
+                    "GST No.": gst_no
                 })
-
                 driver.back()
                 time.sleep(4)
 
@@ -110,6 +104,9 @@ def get_projects_with_details():
                 except:
                     pass
 
+            if progress_callback:
+                progress_callback((idx+1)/total)
+
         return projects
 
     except Exception as e:
@@ -118,16 +115,22 @@ def get_projects_with_details():
     finally:
         driver.quit()
 
-
 # ---- Streamlit UI ----
 st.title("🏗️ Odisha RERA: Project Details")
 
-if "project_details" not in st.session_state:
+if 'project_details' not in st.session_state:
     st.session_state.project_details = []
 
 if st.button("🔍 Fetch Project Details"):
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    def update_progress(pct):
+        progress_bar.progress(pct)
+        status_text.text(f"Progress: {int(pct*100)}%")
+
     with st.spinner("Scraping project overview & promoter details..."):
-        st.session_state.project_details = get_projects_with_details()
+        st.session_state.project_details = get_projects_with_details(progress_callback=update_progress)
+    status_text.text("Scrape complete!")
 
 if st.session_state.project_details:
     st.subheader("Projects Registered")
@@ -141,3 +144,13 @@ if st.session_state.project_details:
             st.write(f"- **Promoter Address:** {proj['Promoter Address']}")
             st.write(f"- **GST No.:** {proj['GST No.']}")
             st.write("---")
+
+    # CSV Download
+    df = pd.DataFrame(st.session_state.project_details)
+    csv_bytes = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Download as CSV",
+        data=csv_bytes,
+        file_name='rera_projects.csv',
+        mime='text/csv'
+    )
