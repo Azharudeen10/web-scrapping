@@ -131,6 +131,7 @@ if st.button("🔍 Fetch Project Details"):
     with st.spinner("Scraping project overview & promoter details..."):
         st.session_state.project_details = get_projects_with_details(progress_callback=update_progress)
     status_text.text("Scrape complete!")
+    st.balloons()
 
 if st.session_state.project_details:
     st.subheader("Projects Registered")
@@ -148,9 +149,14 @@ if st.session_state.project_details:
     # CSV Download
     df = pd.DataFrame(st.session_state.project_details)
     csv_bytes = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
+
+    download_clicked = st.download_button(
         label="📥 Download as CSV",
         data=csv_bytes,
         file_name='rera_projects.csv',
         mime='text/csv'
     )
+
+    if download_clicked:
+        st.balloons()
+        st.success("CSV file downloaded successfully!")
